@@ -23,6 +23,9 @@ var (
 
 	// network with name foo3 already exists
 	alreadyExistsCheck = "already exists"
+
+	// operation is not permitted on predefined bridge network
+	predifinedNetworkCheck = "not permitted on predefined"
 )
 
 type Networks struct {
@@ -95,10 +98,12 @@ func (n Networks) networkingConfig(netConfigPairs []netConfigPair) *dkrnet.Netwo
 			IPAMConfig: &dkrnet.EndpointIPAMConfig{},
 		}
 
-		if newIPAddr(pair.Network.IP()).IsV6() {
-			endPtConfig.IPAMConfig.IPv6Address = pair.Network.IP()
-		} else {
-			endPtConfig.IPAMConfig.IPv4Address = pair.Network.IP()
+		if !pair.Network.IsDynamic() {
+			if newIPAddr(pair.Network.IP()).IsV6() {
+				endPtConfig.IPAMConfig.IPv6Address = pair.Network.IP()
+			} else {
+				endPtConfig.IPAMConfig.IPv4Address = pair.Network.IP()
+			}
 		}
 
 		netConfig.EndpointsConfig[pair.Props.Name] = endPtConfig
@@ -115,7 +120,7 @@ func (n Networks) enableSingleNetwork(network apiv1.Network) (NetProps, error) {
 		return NetProps{}, bosherr.WrapError(err, "Unmarshaling network properties")
 	}
 
-	if len(network.Netmask()) == 0 {
+	if network.IsDynamic() {
 		netProps.Name, err = n.createDynamicNetwork(netProps)
 		if err != nil {
 			return NetProps{}, bosherr.WrapError(err, "Creating dynamic network")
@@ -147,7 +152,8 @@ func (n Networks) createDynamicNetwork(netProps NetProps) (string, error) {
 
 	_, err := n.dkrClient.NetworkCreate(context.TODO(), netProps.Name, createOpts)
 	if err != nil {
-		if !strings.Contains(err.Error(), alreadyExistsCheck) {
+		if !(strings.Contains(err.Error(), alreadyExistsCheck) ||
+			strings.Contains(err.Error(), predifinedNetworkCheck)) {
 			return "", err
 		}
 	}
